@@ -38,6 +38,18 @@ mcp = FastMCP("madmapper")
 _blackout_level: float | None = None
 
 
+def _dentro(base: Path, nome: str, suffisso: str = "") -> Path:
+    """Percorso di `nome` dentro `base`. Rifiuta nomi vuoti e percorsi che escono
+    dalla cartella (es. '../x', percorsi assoluti): i nomi arrivano dal modello."""
+    if not nome or not nome.strip():
+        raise ValueError("nome vuoto")
+    radice = base.resolve()
+    p = (radice / f"{nome}{suffisso}").resolve()
+    if radice != p.parent and radice not in p.parents:
+        raise ValueError(f"'{nome}' esce dalla cartella {base.name}/: usa un nome semplice")
+    return p
+
+
 def _surfaces() -> list[str]:
     return sorted(mm.children("/surfaces"))
 
@@ -616,7 +628,7 @@ def job_start(mode: str, file: str) -> str:
         raise ValueError("mode: record, play o auto")
     if "in corso" in job_status():
         raise RuntimeError(f"c'e' gia' un job attivo, fermalo prima: {job_status()}")
-    return _run([mode, str(HERE / file)], detach=True)
+    return _run([mode, str(_dentro(HERE, file))], detach=True)
 
 
 @mcp.tool()
@@ -646,13 +658,13 @@ def job_status() -> str:
 def scene_save(name: str) -> str:
     """Fotografa lo stato di MadMapper (superfici, media assegnati, master,
     parametri di media e moduli) come scena richiamabile."""
-    return _run(["snapshot", str(SCENES / f"{name}.json")], detach=False)
+    return _run(["snapshot", str(_dentro(SCENES, name, ".json"))], detach=False)
 
 
 @mcp.tool()
 def scene_recall(name: str) -> str:
     """Rimette MadMapper nella scena salvata."""
-    f = SCENES / f"{name}.json"
+    f = _dentro(SCENES, name, ".json")
     if not f.exists():
         raise RuntimeError(f"scena '{name}' inesistente: {scene_list()}")
     return _run(["restore", str(f)], detach=False)

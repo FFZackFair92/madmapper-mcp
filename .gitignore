@@ -6,3 +6,11 @@ stop.flag
 job.json
 automap_*.jpg
 albero_madmapper.json
+
+# Stato locale che il server riscrive da solo
+madmapper_exe.txt
+riapri.json
+fx.json
+automap.json
+calibrazione.json
+scenes/_prima_di_project_open.json

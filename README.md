@@ -19,7 +19,7 @@ In `%APPDATA%\Claude\claude_desktop_config.json`, dentro `mcpServers`:
 ```json
 "madmapper": {
   "command": "uv",
-  "args": ["run", "--script", "C:\\Users\\FABIO\\Desktop\\Progetti\\madmapper\\madmapper_mcp.py"],
+  "args": ["run", "--script", "C:\\percorso\\madmapper-mcp\\madmapper_mcp.py"],
   "env": { "MADMAPPER_HOST": "127.0.0.1", "MADMAPPER_QUERY_PORT": "8010" }
 }
 ```
