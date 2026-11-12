@@ -1,0 +1,8 @@
+__pycache__/
+*.log
+*.err
+*.tmp
+stop.flag
+job.json
+automap_*.jpg
+albero_madmapper.json

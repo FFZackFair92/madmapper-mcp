@@ -1,0 +1,119 @@
+{
+ "seed": 7,
+ "media": [
+  {
+   "surface": "Quad-1",
+   "clips": [
+    "Bar Code",
+    "Bricks",
+    "Caustics",
+    "Clouds",
+    "ColorPatterns",
+    "CubicCircles",
+    "Diagonals",
+    "Dunes",
+    "Gradient Color",
+    "Grid Generator",
+    "LineRepeat",
+    "Line Patterns",
+    "MadNoise",
+    "Noisy Barcode",
+    "Random",
+    "Shapes",
+    "Siren",
+    "Sphere",
+    "SquareArray",
+    "SquareWave",
+    "Strob"
+   ],
+   "beats": 8,
+   "offset": 0.0
+  },
+  {
+   "surface": "Quad-2",
+   "clips": [
+    "Bar Code",
+    "Bricks",
+    "Caustics",
+    "Clouds",
+    "ColorPatterns",
+    "CubicCircles",
+    "Diagonals",
+    "Dunes",
+    "Gradient Color",
+    "Grid Generator",
+    "LineRepeat",
+    "Line Patterns",
+    "MadNoise",
+    "Noisy Barcode",
+    "Random",
+    "Shapes",
+    "Siren",
+    "Sphere",
+    "SquareArray",
+    "SquareWave",
+    "Strob"
+   ],
+   "beats": 8,
+   "offset": 4.0
+  }
+ ],
+ "sections": {
+  "beats": 8,
+  "seq": [
+   {
+    "chase": {
+     "beats": 0.5,
+     "surfaces": [
+      "Quad-1",
+      "Quad-2"
+     ],
+     "seed": 7
+    }
+   },
+   {
+    "strobe": {
+     "beats": 0.25,
+     "duty": 0.3,
+     "surfaces": [
+      "Quad-1",
+      "Quad-2"
+     ],
+     "seed": 7
+    }
+   },
+   {
+    "mix": {
+     "beats": 1,
+     "surfaces": [
+      "Quad-1",
+      "Quad-2"
+     ],
+     "seed": 7
+    }
+   },
+   {},
+   {
+    "strobe": {
+     "beats": 0.5,
+     "duty": 0.5,
+     "surfaces": [
+      "Quad-1",
+      "Quad-2"
+     ],
+     "seed": 7
+    }
+   },
+   {
+    "chase": {
+     "beats": 0.25,
+     "surfaces": [
+      "Quad-1",
+      "Quad-2"
+     ],
+     "seed": 7
+    }
+   }
+  ]
+ }
+}
