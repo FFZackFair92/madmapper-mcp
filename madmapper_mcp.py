@@ -836,5 +836,179 @@ def fx_stop_all() -> str:
     return job_stop()
 
 
+# ---------------------------------------------------------------- dissolvenze, look, media
+# Aggiunti confrontando con jaxondoss/map-mapper-agent (fade, preset di look):
+# qui pero' si legge il valore di partenza da OSCQuery invece di indovinarlo.
+
+LOOKS = HERE / "looks.json"
+FADE_FPS, FADE_MAX = 30, 120.0
+
+
+def _addr(target: str) -> str:
+    """'master' -> livello master, 'Quad-1' -> opacita' di quella superficie,
+    '/indirizzo/completo' -> se stesso."""
+    if target.startswith("/"):
+        return target
+    if target.lower() == "master":
+        return "/master/master_level"
+    if target.lower() in ("video", "master_video"):
+        return "/master/master_video_level"
+    if target not in _surfaces():
+        raise ValueError(f"'{target}' non e' una superficie. Ci sono: {_surfaces()}")
+    return f"/surfaces/{target}/opacity"
+
+
+def _ramp(moves: dict[str, tuple[float, float]], seconds: float, curve: str = "linear") -> None:
+    steps = max(1, int(seconds * FADE_FPS))
+    t0 = time.monotonic()
+    for i in range(1, steps + 1):
+        k = i / steps
+        if curve == "smooth":
+            k = k * k * (3 - 2 * k)
+        for a, (da, a_) in moves.items():
+            mm.write(a, da + (a_ - da) * k)
+        attesa = t0 + i * seconds / steps - time.monotonic()
+        if attesa > 0:
+            time.sleep(attesa)
+
+
+@mcp.tool()
+def fade(targets: list[str], to: float, seconds: float = 2.0,
+         from_value: float | None = None, curve: str = "linear") -> str:
+    """Dissolvenza a tempo di uno o piu' bersagli insieme. Blocca fino alla fine.
+    targets: nomi di superficie (opacita'), 'master', 'video' (master video) o address
+    completi di parametri numerici (es. '/medias/Clouds/Speed').
+    Il valore di partenza si legge da MadMapper; from_value lo forza.
+    curve: 'linear' | 'smooth'. Massimo 120 s: per fade piu' lunghi usa fx_modulate."""
+    if not 0 <= seconds <= FADE_MAX:
+        raise ValueError(f"seconds tra 0 e {FADE_MAX}")
+    moves = {}
+    for t in targets:
+        a = _addr(t)
+        start = from_value if from_value is not None else _v(a)
+        try:
+            start = float(start)
+        except (TypeError, ValueError):
+            raise RuntimeError(f"{a}: valore attuale {start!r} non numerico (passa from_value)")
+        moves[a] = (start, float(to))
+    _ramp(moves, seconds, curve)
+    return f"fade {', '.join(moves)} -> {to} in {seconds}s"
+
+
+def _numeric_params(root: str) -> dict[str, float]:
+    out = {}
+    for a, n in mm.walk(mm.tree(root), root):
+        if n.get("TYPE") in ("f", "i", "d", "h") and not str(n.get("ACCESS", 3)) == "2":
+            v = mm.first(n.get("VALUE"))
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                out[a] = v
+    return out
+
+
+def _looks() -> dict:
+    return json.loads(LOOKS.read_text(encoding="utf-8")) if LOOKS.exists() else {}
+
+
+@mcp.tool()
+def look_save(name: str, roots: list[str], description: str = "") -> str:
+    """Salva un 'look': i valori numerici attuali sotto uno o piu' nodi.
+    roots: es. ['/medias/Frattali_Chip'] per i parametri di un materiale/shader,
+    ['/surfaces/Quad-1'] per una superficie. Piu' mirato di scene_save, e si puo'
+    richiamare con una dissolvenza (look_apply)."""
+    values = {}
+    for r in roots:
+        values.update(_numeric_params(r))
+    if not values:
+        raise RuntimeError(f"nessun parametro numerico sotto {roots}")
+    looks = _looks()
+    looks[name] = {"description": description, "roots": roots, "values": values}
+    LOOKS.write_text(json.dumps(looks, indent=1, ensure_ascii=False), encoding="utf-8")
+    return f"look '{name}': {len(values)} parametri salvati"
+
+
+@mcp.tool()
+def look_apply(name: str, seconds: float = 0.0, curve: str = "smooth") -> str:
+    """Richiama un look salvato. seconds > 0 = morph dai valori attuali a quelli del look."""
+    looks = _looks()
+    if name not in looks:
+        raise RuntimeError(f"look '{name}' inesistente: {sorted(looks)}")
+    target = looks[name]["values"]
+    if seconds <= 0:
+        for a, v in target.items():
+            mm.write(a, v)
+        return f"look '{name}' applicato ({len(target)} parametri)"
+    moves = {}
+    for a, v in target.items():
+        cur = _v(a)
+        if isinstance(cur, (int, float)) and not isinstance(cur, bool):
+            moves[a] = (float(cur), float(v))
+    _ramp(moves, min(seconds, FADE_MAX), curve)
+    return f"look '{name}' raggiunto in {seconds}s ({len(moves)} parametri)"
+
+
+@mcp.tool()
+def look_list() -> dict:
+    """Look salvati, con descrizione e numero di parametri."""
+    return {k: {"description": v.get("description", ""), "roots": v.get("roots"),
+                "params": len(v.get("values", {}))} for k, v in _looks().items()}
+
+
+@mcp.tool()
+def media_import(path: str) -> str:
+    """Importa un file (video, immagine, shader .fs/ISF) nella lista media di MadMapper.
+    path: percorso sul PC dove gira MadMapper. Poi assegnalo con assign_media."""
+    prima = set(mm.children("/medias"))
+    mm.write("/application/medias/add", path)
+    time.sleep(0.5)
+    nuovi = sorted(set(mm.children("/medias")) - prima)
+    return f"importato {path}" + (f" -> {nuovi}" if nuovi else " (non ancora visibile nella lista)")
+
+
+@mcp.tool()
+def media_speed(media: str, speed: float) -> str:
+    """Velocita' di riproduzione di un media (il parametro Speed di MadMapper)."""
+    a = f"{_media(media)}/Speed"
+    return f"{a} = {mm.write(a, float(speed), verify=True)!r}"
+
+
+@mcp.tool()
+def surface_visible(surfaces: list[str], visible: bool = True, solo: bool = False) -> str:
+    """Mostra/nasconde superfici. solo=True: mostra SOLO queste e nasconde tutte le altre."""
+    tutte, scelte = _surfaces(), _targets(surfaces)
+    if solo:
+        for s in tutte:
+            mm.write(f"/surfaces/{s}/visible", int(s in scelte))
+    else:
+        for s in scelte:
+            mm.write(f"/surfaces/{s}/visible", int(visible))
+    return f"{'solo ' if solo else ''}{scelte} visible={visible}"
+
+
+@mcp.tool()
+def show_check() -> dict:
+    """Controllo pre-show (sola lettura): master a 0, uscite spente, superfici
+    invisibili, a opacita' 0 o senza media, freeze attivo."""
+    s = get_state()
+    problemi = []
+    if (s.get("master_level") or 0) <= 0:
+        problemi.append("master_level a 0")
+    if s.get("master_video_level") is not None and s["master_video_level"] <= 0:
+        problemi.append("master_video_level a 0")
+    for o, en in (s.get("outputs") or {}).items():
+        if not en:
+            problemi.append(f"uscita {o} disattivata")
+    for x in s.get("surfaces", []):
+        if not x.get("visible"):
+            problemi.append(f"superficie {x['name']} invisibile")
+        if (x.get("opacity") or 0) <= 0:
+            problemi.append(f"superficie {x['name']} a opacita' 0")
+        if not x.get("media"):
+            problemi.append(f"superficie {x['name']} senza media")
+    if _v("/master/freeze_engine"):
+        problemi.append("freeze_engine attivo")
+    return {"ok": not problemi, "problemi": problemi,
+            "superfici": len(s.get("surfaces", [])), "media": len(s.get("medias", [])), "bpm": s.get("bpm")}
+
+
 if __name__ == "__main__":
     mcp.run()

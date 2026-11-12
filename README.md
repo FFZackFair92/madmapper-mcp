@@ -60,6 +60,21 @@ I booleani sono interi (`TYPE i`), i media stanno in `/medias`, le cue in
 **Effetti a battute** — `fx_strobe` · `fx_chase` · `fx_mix(seed)` · `fx_media` · `fx_modulate`
 · `fx_status` · `fx_stop_all`
 
+**Dissolvenze e look** (aggiunti a novembre 2026, confrontando con
+[jaxondoss/map-mapper-agent](https://github.com/jaxondoss/map-mapper-agent))
+- `fade(targets, to, seconds, from_value, curve)` — dissolvenza a tempo di superfici,
+  master o qualsiasi parametro numerico, anche più insieme; il valore di partenza si
+  legge da OSCQuery. `curve`: `linear` o `smooth`, massimo 120 s
+- `look_save(name, roots)` · `look_apply(name, seconds)` · `look_list()` — preset
+  mirati dei parametri di un materiale/shader o di una superficie, richiamabili con
+  un morph (salvati in `looks.json`)
+
+**Media e superfici**
+- `media_import(path)` — importa un file o uno shader nella lista media
+- `media_speed(media, speed)` · `surface_visible(surfaces, visible, solo)`
+- `show_check()` — controllo pre-show: master a 0, uscite spente, superfici
+  invisibili, a opacità 0 o senza media, freeze attivo
+
 ## Progetti: aggiungere Quad e aprire un .mad
 
 Via OSC MadMapper non crea superfici e non apre progetti. Il file `.mad` però
