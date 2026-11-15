@@ -183,3 +183,7 @@ python fake_madmapper.py        # finto MadMapper sulla 8010, per provare da Cla
 - OSC non conferma la ricezione: le scritture importanti vengono rilette da OSCQuery.
 - Creare/eliminare superfici e caricare media non è previsto: si fa in MadMapper.
 - Spatial Scanner nativo non è pilotabile; l'automapping usa la nostra calibrazione.
+
+## Licenza
+
+MIT, vedi [LICENSE](LICENSE).
