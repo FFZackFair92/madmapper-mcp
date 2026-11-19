@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["mcp>=1.2,<2", "pillow>=10"]
+# dependencies = ["mcp>=1.10,<3", "pillow>=10"]
 # ///
 """MCP server per MadMapper (OSC + OSCQuery).
 
@@ -1020,6 +1020,230 @@ def show_check() -> dict:
         problemi.append("freeze_engine attivo")
     return {"ok": not problemi, "problemi": problemi,
             "superfici": len(s.get("surfaces", [])), "media": len(s.get("medias", [])), "bpm": s.get("bpm")}
+
+
+# ------------------------------------------------------------ 1.2: ascolto, superfici, DMX, transport, avvio
+
+import fnmatch  # noqa: E402
+
+
+def _expand(surface: str) -> list[str]:
+    """'Quad-1', '*' oppure un modello con * e ? ('Led*', 'Quad-?') -> nomi esistenti."""
+    tutte = _surfaces()
+    if any(ch in surface for ch in "*?["):
+        hit = [s for s in tutte if fnmatch.fnmatchcase(s, surface)]
+        if not hit:
+            raise ValueError(f"nessuna superficie corrisponde a '{surface}'. Ci sono: {tutte}")
+        return hit
+    if surface not in tutte:
+        raise ValueError(f"superficie '{surface}' inesistente. Ci sono: {tutte}")
+    return [surface]
+
+
+@mcp.tool()
+def surfaces_where(pattern: str, param: str, value: Any) -> dict:
+    """Lo stesso parametro su tutte le superfici che corrispondono a un modello: surfaces_where('Led*', 'opacity', 0.5),
+    surfaces_where('Quad-?', 'visible', False). Ogni scrittura e' verificata."""
+    done = []
+    for s in _expand(pattern):
+        done.append({"surface": s, "value": mm.write(f"/surfaces/{s}/{param}", value, verify=True)})
+    return {"pattern": pattern, "param": param, "count": len(done), "surfaces": done}
+
+
+@mcp.tool()
+def watch_parameters(query: str, seconds: float = 5.0, interval: float = 0.2, limit: int = 40) -> dict:
+    """Ascolta per qualche secondo i parametri che contengono `query` (come find_parameters) e riporta come cambiano:
+    per vedere se un modulo audio-reattivo reagisce, cosa sta muovendo l'operatore, se un fx gira davvero.
+    Per ogni parametro: primo e ultimo valore, min/max, numero di cambi."""
+    q = query.lower()
+    seconds, interval = max(0.5, min(seconds, 60)), max(0.05, min(interval, 5))
+    seen: dict[str, dict] = {}
+    end, samples = time.time() + seconds, 0
+    while True:
+        samples += 1
+        for a, n in mm.walk(mm.tree()):
+            if q not in a.lower():
+                continue
+            v = mm.first(n.get("VALUE"))
+            st = seen.get(a)
+            if st is None:
+                if len(seen) >= limit:
+                    continue
+                seen[a] = st = {"first": v, "last": v, "changes": 0}
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    st["min"] = st["max"] = v
+            elif v != st["last"]:
+                st["changes"], st["last"] = st["changes"] + 1, v
+            if "min" in st and isinstance(v, (int, float)):
+                st["min"], st["max"] = min(st["min"], v), max(st["max"], v)
+        if time.time() >= end:
+            break
+        time.sleep(interval)
+    moving = {k: v for k, v in seen.items() if v["changes"]}
+    return {"query": query, "samples": samples, "watched": len(seen), "changed": moving,
+            "still": sorted(k for k in seen if k not in moving)[:limit]}
+
+
+@mcp.tool()
+def surface_info(surface: str) -> dict:
+    """Tutti i parametri di una superficie in una chiamata (opacita', visibilita', colore, media, blend, maschere,
+    posizione, handle...), con tipo e range: per sapere cosa si puo' cambiare con surface_set."""
+    base = f"/surfaces/{_expand(surface)[0]}"
+    params = {}
+    for a, n in mm.walk(mm.tree(base), base):
+        item: dict[str, Any] = {"value": mm.first(n.get("VALUE")), "type": n.get("TYPE")}
+        if n.get("RANGE"):
+            item["range"] = n["RANGE"]
+        params[a[len(base) + 1:]] = item
+    return {"surface": base.rsplit("/", 1)[-1], "count": len(params), "params": params}
+
+
+TRANSFORM_KEYS = {"position": ("position", "translate", "translation", "offset", "center"),
+                  "scale": ("scale", "size", "zoom"), "rotation": ("rotation", "rotate", "angle")}
+
+
+@mcp.tool()
+def surface_transform(surface: str, position: list[float] | None = None, scale: float | list[float] | None = None,
+                      rotation: float | None = None, move_by: list[float] | None = None) -> dict:
+    """Sposta, scala o ruota una superficie (anche piu' superfici con un modello come 'Quad-*'). Cerca i parametri di
+    trasformazione nell'albero della superficie; move_by=[dx, dy] in pixel della tela sposta tutti gli handle insieme,
+    utile quando la superficie non ha un parametro di posizione."""
+    out = []
+    for s in _expand(surface):
+        base = f"/surfaces/{s}"
+        addrs = {a[len(base) + 1:].lower(): a for a, _ in mm.walk(mm.tree(base), base)}
+        done: dict[str, Any] = {}
+        for key, val in (("position", position), ("scale", scale), ("rotation", rotation)):
+            if val is None:
+                continue
+            hit = next((a for leaf, a in addrs.items() if leaf.split("/")[-1] in TRANSFORM_KEYS[key]
+                        and "handles" not in leaf), None)
+            if hit is None:
+                raise ValueError(f"{s}: nessun parametro di {key}. Usa move_by o surface_info('{s}')")
+            done[key] = mm.write(hit, val, verify=True)
+        if move_by:
+            dx, dy = float(move_by[0]), float(move_by[1])
+            moved = 0
+            for leaf, a in addrs.items():
+                if "handles/" in leaf and leaf.endswith(("/x", "/y")):
+                    cur = float(mm.value(a))
+                    mm.write(a, cur + (dx if leaf.endswith("/x") else dy))
+                    moved += 1
+            if not moved:
+                raise ValueError(f"{s}: nessun handle da spostare")
+            done["moved_handles"] = moved // 2
+        out.append({"surface": s, **done})
+    return {"done": out}
+
+
+@mcp.tool()
+def fixtures(action: str = "list", fixture: str = "", values: dict[str, Any] | None = None) -> dict:
+    """Fixture DMX/luci di MadMapper (/fixtures): list (fixture e loro parametri), set (parametri per nome, es.
+    {"Dimmer": 1, "Red": 0.5}; il nome si confronta senza maiuscole). fixture accetta un modello ('Par*')."""
+    tree = mm.tree("/fixtures") if action else {}
+    kids = {k: v for k, v in (tree.get("CONTENTS") or {}).items() if "CONTENTS" in v}
+    if not kids:
+        raise RuntimeError("nessuna fixture in /fixtures (MadMapper senza DMX configurato?)")
+    if action == "list":
+        return {"fixtures": {k: sorted(a.rsplit("/", 1)[-1] for a, _ in mm.walk(v, f"/fixtures/{k}")) for k, v in kids.items()}}
+    if action != "set":
+        raise ValueError("action: list | set")
+    names = [k for k in kids if fnmatch.fnmatchcase(k, fixture or "*")]
+    if not names:
+        raise ValueError(f"fixture '{fixture}' inesistente. Ci sono: {sorted(kids)}")
+    done = []
+    for k in names:
+        params = {a.rsplit("/", 1)[-1].lower(): a for a, _ in mm.walk(kids[k], f"/fixtures/{k}")}
+        for pn, val in (values or {}).items():
+            a = params.get(pn.lower())
+            if a is None:
+                raise ValueError(f"{k} non ha il parametro '{pn}'. Ha: {sorted(params)}")
+            mm.write(a, val)
+            done.append(a)
+    return {"fixtures": names, "written": done}
+
+
+MEDIA_ACTIONS = {"play": ("play", "playing", "start"), "pause": ("pause", "paused", "stop"),
+                 "restart": ("restart", "rewind", "go_to_start", "reset", "retrigger"), "loop": ("loop", "looping")}
+
+
+@mcp.tool()
+def media_transport(media: str, action: str = "status", loop: bool | None = None) -> dict:
+    """Transport di un media: play, pause, restart, status; loop=true/false. Cerca i parametri giusti tra quelli del
+    media (MadMapper cambia nomi tra media video, generatori e moduli) e dice cosa ha trovato."""
+    base = _media(media)
+    params = {a.rsplit("/", 1)[-1].lower(): (a, n) for a, n in mm.walk(mm.tree(base), base)}
+    status = {k: mm.first(n.get("VALUE")) for k, (a, n) in params.items() if k in sum(MEDIA_ACTIONS.values(), ())}
+    if action == "status" and loop is None:
+        return {"media": base, "transport": status, "params": sorted(params)}
+    if action != "status":
+        names = MEDIA_ACTIONS.get(action)
+        if names is None:
+            raise ValueError("action: play | pause | restart | status")
+        hit = next((params[n] for n in names if n in params), None)
+        if hit is None:
+            raise ValueError(f"{base}: nessun comando per '{action}'. Parametri: {sorted(params)}")
+        a, n = hit
+        if n.get("TYPE") in ("N", "I"):
+            mm.write(a)
+        elif a.rsplit("/", 1)[-1].lower() in ("playing", "paused", "looping"):
+            mm.write(a, 1)
+        else:
+            mm.write(a, 1)
+    if loop is not None:
+        hit = next((params[n] for n in MEDIA_ACTIONS["loop"] if n in params), None)
+        if hit is None:
+            raise ValueError(f"{base}: nessun parametro loop. Parametri: {sorted(params)}")
+        mm.write(hit[0], int(loop))
+    return {"media": base, "action": action, "loop": loop}
+
+
+def _find_madmapper() -> str | None:
+    env = os.environ.get("MADMAPPER_EXE")
+    if env:
+        return env if os.path.exists(env) else None
+    if sys.platform == "win32":
+        for r in (os.environ.get("ProgramFiles", r"C:\Program Files"), os.environ.get("ProgramFiles(x86)", "")):
+            if not r:
+                continue
+            for d in sorted(Path(r).glob("MadMapper*"), reverse=True):
+                exe = d / "MadMapper.exe"
+                if exe.is_file():
+                    return str(exe)
+    elif sys.platform == "darwin":
+        apps = sorted(Path("/Applications").glob("MadMapper*.app"), reverse=True)
+        return str(apps[0]) if apps else None
+    return None
+
+
+@mcp.tool()
+def open_madmapper(project: str = "", wait_seconds: int = 60) -> dict:
+    """Apre MadMapper (o un progetto .mad) se non e' gia' aperto e aspetta che OSCQuery risponda.
+    Ricorda: Preferences > OSC/MIDI -> OSC Query attivo."""
+    try:
+        mm.tree("/master")
+        return {"opened": False, "already_running": True}
+    except Exception:
+        pass
+    exe = _find_madmapper()
+    if not exe:
+        raise RuntimeError("MadMapper non trovato: imposta MADMAPPER_EXE")
+    args = [project] if project else []
+    if project and not os.path.isfile(project):
+        raise RuntimeError(f"progetto non trovato: {project}")
+    if exe.endswith(".app"):
+        subprocess.Popen(["open", "-a", exe, *args])
+    else:
+        cmd = ([sys.executable] if exe.endswith(".py") else []) + [exe, *args]
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    end = time.time() + max(3, min(wait_seconds, 300))
+    while time.time() < end:
+        try:
+            mm.tree("/master")
+            return {"opened": True, "exe": exe, "project": project or None}
+        except Exception:
+            time.sleep(1)
+    raise RuntimeError(f"MadMapper avviato ({exe}) ma OSCQuery non risponde: Preferences > OSC/MIDI > OSC Query")
 
 
 if __name__ == "__main__":

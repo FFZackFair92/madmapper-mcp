@@ -47,6 +47,7 @@ def surface(name, x0, media):
 def media(name):
     b = f"/medias/{name}"
     return {**node(b, Speed=p(f"{b}/Speed", "f", 0.5), select=trig(f"{b}/select"),
+                   Play=trig(f"{b}/Play"), Restart=trig(f"{b}/Restart"), Loop=p(f"{b}/Loop", "i", True, 0, 1),
                    assign=trig(f"{b}/assign"),
                    assign_to_all_surfaces=trig(f"{b}/assign_to_all_surfaces")),
             "DESCRIPTION": name.replace("_", " ")}
@@ -74,6 +75,11 @@ def build():
                                   f"{bank}/by_cell/col_1", row_1=trig(f"{bank}/by_cell/col_1/row_1")))))}),
                 application=node("/application", medias=node(
                     "/application/medias", add=p("/application/medias/add", "s", "~/image.jpg"))),
+                fixtures=node("/fixtures", **{"Par-1": node("/fixtures/Par-1",
+                                                            Dimmer=p("/fixtures/Par-1/Dimmer", "f", 0.0, 0, 1),
+                                                            Red=p("/fixtures/Par-1/Red", "f", 0.0, 0, 1)),
+                                              "Par-2": node("/fixtures/Par-2",
+                                                            Dimmer=p("/fixtures/Par-2/Dimmer", "f", 0.0, 0, 1))}),
                 outputs=node("/outputs", **{"Video-Output-1": node(
                     "/outputs/Video-Output-1",
                     enabled=p("/outputs/Video-Output-1/enabled", "i", True))}))

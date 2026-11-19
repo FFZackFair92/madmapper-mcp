@@ -75,6 +75,16 @@ I booleani sono interi (`TYPE i`), i media stanno in `/medias`, le cue in
 - `show_check()` — controllo pre-show: master a 0, uscite spente, superfici
   invisibili, a opacità 0 o senza media, freeze attivo
 
+**Superfici, luci e ascolto** (1.2, 19 novembre 2026)
+- `surfaces_where(pattern, param, value)` — un parametro su tutte le superfici di un modello (`Led*`, `Quad-?`)
+- `surface_info(surface)` — tutti i parametri di una superficie con tipo e range
+- `surface_transform(surface, position, scale, rotation, move_by)` — sposta/scala/ruota; `move_by=[dx, dy]` sposta
+  tutti gli handle insieme quando non c'è un parametro di posizione
+- `fixtures(list|set, fixture, values)` — luci DMX di MadMapper per nome di parametro (`{"Dimmer": 1}`), anche a modello
+- `media_transport(media, play|pause|restart|status, loop)` — trova da solo i comandi giusti del media
+- `watch_parameters(query, seconds)` — ascolta i parametri: cosa si muove, min/max, quante volte
+- `open_madmapper(project, wait_seconds)` — apre MadMapper (o un .mad) e aspetta OSCQuery (`MADMAPPER_EXE`)
+
 ## Progetti: aggiungere Quad e aprire un .mad
 
 Via OSC MadMapper non crea superfici e non apre progetti. Il file `.mad` però

@@ -120,6 +120,51 @@ print(srv.fx_stop_all())
 wait()
 assert abs(V("/surfaces/Quad-1/opacity") - 0.8) < 1e-6 and V("/surfaces/Quad-2/opacity") == 1.0
 
+# --- 1.2: modelli di superfici, ascolto, info, trasformazioni, fixture, transport, avvio
+r = srv.surfaces_where("Quad-?", "opacity", 0.6)
+assert r["count"] == 2 and abs(V("/surfaces/Quad-2/opacity") - 0.6) < 1e-6, r
+try:
+    srv.surfaces_where("Led*", "opacity", 1)
+    raise AssertionError("doveva fallire")
+except ValueError as e:
+    assert "nessuna superficie" in str(e)
+srv.set_parameter("/surfaces/Quad-1/opacity", 1.0)
+w = srv.watch_parameters("Quad-1/opacity", seconds=0.5, interval=0.1)
+assert w["watched"] == 1 and not w["changed"] and w["samples"] >= 3, w
+inf = srv.surface_info("Quad-1")
+assert inf["params"]["opacity"]["range"] and "output/handles/0/x" in inf["params"], inf
+x0 = V("/surfaces/Quad-2/output/handles/0/x")
+r = srv.surface_transform("Quad-2", move_by=[50, -20]); wait()
+assert r["done"][0]["moved_handles"] == 4 and abs(V("/surfaces/Quad-2/output/handles/0/x") - (x0 + 50)) < 1e-3, r
+try:
+    srv.surface_transform("Quad-1", rotation=45)
+    raise AssertionError("doveva fallire: niente parametro di rotazione")
+except ValueError as e:
+    assert "move_by" in str(e)
+fx = srv.fixtures()
+assert fx["fixtures"]["Par-1"] == ["Dimmer", "Red"], fx
+srv.fixtures("set", "Par-*", {"dimmer": 0.8}); wait()
+assert abs(V("/fixtures/Par-1/Dimmer") - 0.8) < 1e-6 and abs(V("/fixtures/Par-2/Dimmer") - 0.8) < 1e-6
+try:
+    srv.fixtures("set", "Par-2", {"Red": 1})
+    raise AssertionError("doveva fallire")
+except ValueError as e:
+    assert "non ha il parametro" in str(e)
+mt = srv.media_transport("TestCard")
+assert "play" in mt["params"] and mt["transport"]["loop"] == 1, mt
+srv.media_transport("TestCard", "restart"); wait()
+assert fake.log[-1] == ("/medias/TestCard/Restart", [])
+srv.media_transport("TestCard", "play", loop=False); wait()
+assert V("/medias/TestCard/Loop") == 0
+try:
+    srv.media_transport("TestCard", "pause")
+    raise AssertionError("TestCard finto non ha pausa")
+except ValueError as e:
+    assert "nessun comando" in str(e)
+assert srv.open_madmapper()["already_running"]
+names = sorted(t.name for t in __import__("asyncio").run(srv.mcp.list_tools()))
+assert len(names) == 54, len(names)
+
 # --- registra e riproduci
 print(srv.job_start("record", "prova.jsonl")); time.sleep(0.6)
 srv.set_parameter("/surfaces/Quad-2/opacity", 0.3); time.sleep(0.6)
